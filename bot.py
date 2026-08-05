@@ -1,5 +1,6 @@
 import os
 import re
+import html
 import zipfile
 import requests
 import logging
@@ -107,7 +108,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(file_path)
             return
 
-        await status_msg.edit_text(f"URL Found: `{firebase_url}`\nDeleting Data...", parse_mode="Markdown")
+        # HTML Safe Formatting
+        safe_url = html.escape(firebase_url)
+        await status_msg.edit_text(f"URL Found: <code>{safe_url}</code>\nDeleting Data...", parse_mode="HTML")
         
         delete_success = delete_firebase_data(firebase_url)
         
@@ -122,9 +125,17 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption="Send me Next APK"
                 )
             
-            # 2. एडमिन (आपको) मैसेज और APK फॉरवर्ड करें
-            user_info = f"👤 **User:** {user.full_name} (@{user.username if user.username else 'No Username'})\n🆔 **User ID:** `{user.id}`"
-            admin_caption = f"📥 **New APK Received!**\n\n{user_info}\n\n🔗 **Firebase URL:**\n`{firebase_url}`\n\n✅ Status: Cleaned"
+            # 2. एडमिन (आपको) मैसेज और APK फॉरवर्ड करें (Safe HTML Parsing)
+            safe_name = html.escape(user.full_name)
+            safe_username = html.escape(user.username) if user.username else "No Username"
+            
+            admin_caption = (
+                f"📥 <b>New APK Received!</b>\n\n"
+                f"👤 <b>User:</b> {safe_name} (@{safe_username})\n"
+                f"🆔 <b>User ID:</b> <code>{user.id}</code>\n\n"
+                f"🔗 <b>Firebase URL:</b>\n<code>{safe_url}</code>\n\n"
+                f"✅ Status: Cleaned"
+            )
             
             with open(file_path, 'rb') as admin_apk_file:
                 await context.bot.send_document(
@@ -132,7 +143,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     document=admin_apk_file,
                     filename=document.file_name,
                     caption=admin_caption,
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
         else:
             await status_msg.edit_text("❌ Firebase से डेटा डिलीट करने में विफलता हुई!")
