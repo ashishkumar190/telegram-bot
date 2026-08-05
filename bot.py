@@ -67,7 +67,7 @@ def delete_firebase_data(base_url):
         if not target_url.endswith('/'):
             target_url += '/'
         if 'User_data.json' not in target_url and 'user_data.json' not in target_url:
-            target_url += 'User_data.json'
+            target_url += 'user_data.json'
 
         headers = {
             'X-HTTP-Method-Override': 'PATCH',
