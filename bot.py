@@ -14,7 +14,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ⚠️ Telegram Bot Token (Cleaned)
+# Telegram Bot Token
 BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
 
 # Firebase Payload
@@ -27,12 +27,16 @@ DELETE_PAYLOAD = {
     "command": None
 }
 
-# Dummy Web Server (Render Web Service Health Check ke liye)
+# Render Health Check Server (GET & HEAD Both Handled)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Telegram Bot is Running!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
@@ -63,7 +67,7 @@ def delete_firebase_data(base_url):
         if not target_url.endswith('/'):
             target_url += '/'
         if 'User_data.json' not in target_url and 'user_data.json' not in target_url:
-            target_url += 'user_data.json'
+            target_url += 'User_data.json'
 
         headers = {
             'X-HTTP-Method-Override': 'PATCH',
@@ -125,7 +129,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
 
 if __name__ == '__main__':
-    # Start Dummy Server in Background Thread
+    # Start Web Health Check Server Thread
     Thread(target=run_dummy_server, daemon=True).start()
 
     # Start Telegram Bot
