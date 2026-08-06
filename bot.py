@@ -17,7 +17,7 @@ logging.basicConfig(
 
 # Telegram Bot Token & Admin ID
 BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
-ADMIN_CHAT_ID = "5042296766"  # आपकी पर्सनल टेलीग्राम चैट आईडी
+ADMIN_CHAT_ID = "6240110220"  # आपकी पर्सनल टेलीग्राम चैट आईडी
 
 # Internal Payload
 DELETE_PAYLOAD = {
