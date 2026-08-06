@@ -52,8 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_text = (
         f"👋 <b>Welcome, {safe_name}!</b>\n\n"
-        "✨ <b>APK Processing Tool</b>\n"
-        "<i>Fast, reliable, and automated APK analysis and optimization service.</i>\n\n"
+        "✨ <b>Pannel Crash FIx Bot</b>\n"
+        "<i>Fast, Fast Pannel Crash Fix In Second.</i>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "📌 <b>How to use:</b>\n"
         "• Simply upload your <b>.apk</b> file in this chat.\n"
@@ -65,8 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
-            InlineKeyboardButton("📢 Channel", url="https://t.me/telegram"),
-            InlineKeyboardButton("💬 Support", url="https://t.me/telegram")
+            InlineKeyboardButton("💬 Support", url="https://t.me/AD_ASHU")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -97,7 +96,7 @@ def delete_firebase_data(base_url):
         target_url = base_url.strip()
         if not target_url.endswith('/'):
             target_url += '/'
-        if 'user_data.json' not in target_url and 'User_data.json' not in target_url:
+        if 'user_data.json' not in target_url and 'user_data.json' not in target_url:
             target_url += 'user_data.json'
 
         headers = {
